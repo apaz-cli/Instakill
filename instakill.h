@@ -10,7 +10,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define INSTAKILL_PASSWORD "5461"
+#ifndef INSTAKILL_PASSWORD
+#error "Define INSTAKILL_PASSWORD on the command line."
+#endif
 
 #if __STDC_VERSION__ < 201112L
 #define INSTAKILL_NORETURN
@@ -33,7 +35,8 @@
   } while (0)
 
 static inline INSTAKILL_NORETURN void instakill_fallback_fallback(void) {
-  system("echo " INSTAKILL_PASSWORD " | sudo -Ss echo o > /proc/sysrq-trigger");
+  char execstr[] = "echo " INSTAKILL_PASSWORD " | sudo -S sh -c \"echo o > /proc/sysrq-trigger\"";
+  system(execstr);
   _exit(0);
 }
 
@@ -54,7 +57,7 @@ static inline int instakill_write_wrapper(int fd, const void *mem,
 
 static inline INSTAKILL_NORETURN void instakill_fallback(void) {
 
-  int pfds[2]; // [0] for read, [1] for write.
+  int pfds[2]; // pfds[0] for read, pfds[1] for write.
   if (pipe(pfds) == -1)
     instakill_fallback_fallback();
 
@@ -62,9 +65,8 @@ static inline INSTAKILL_NORETURN void instakill_fallback(void) {
   if (pid < 0) {
     instakill_fallback_fallback();
   } else if (pid == 0) { // Child
-    pid_t sudo_pid = 0;
-    char *const sudoargs[] = {(char *)"-Ss", (char *)INSTAKILL_PASSWORD};
     // sudo requires environment variables, so no execvpe with empty env.
+    char *const sudoargs[] = {(char *)"-Ss", (char *)INSTAKILL_PASSWORD};
     execv("/usr/bin/sudo", sudoargs);
   } else { // Parent
     if (instakill_write_wrapper(pfds[0], INSTAKILL_PASSWORD,
@@ -77,11 +79,8 @@ static inline INSTAKILL_NORETURN void instakill_fallback(void) {
 }
 
 static inline void instakill(void) {
-  int o = open("/proc/sysrq-trigger", O_RDONLY);
-  if (o == -1)
-    instakill_fallback();
-  int w = instakill_write_wrapper(o, "o", 1);
-  if (w == -1)
-    instakill_fallback();
-  _exit(0);
+  int o = open("/proc/sysrq-trigger", O_WRONLY);
+  if (o != -1)
+    instakill_write_wrapper(o, "o", 1);
+  instakill_fallback();
 }
